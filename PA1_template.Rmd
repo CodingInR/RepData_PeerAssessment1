@@ -1,25 +1,122 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "RR Proj 1"
+author: "CodingInR"
+date: "6/12/2019"
+output: html_document
 ---
 
-
-## Loading and preprocessing the data
-
-
-
-## What is mean total number of steps taken per day?
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
 
+### Code to read and prep data
+```{r read}
+require("dplyr")
+require("ggplot2")
+#Dataset URL
+URL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+#Check if zip has been downloaded. If not, download, read csv into two data frames:
+#1) original 2) original with NA's omitted
+if(!file.exists("data.zip")){
+  download.file(URL,"data.zip")
+  unzip("data.zip")
+}
+if(!exists("dat")){
+  #dat is unchanged dataset, datNoH removes NA's
+  dat <- read.csv("activity.csv", header = TRUE, sep = ",")
+  datNoH <- na.omit(dat)
+  }
+```
 
-## What is the average daily activity pattern?
+### Mean number of steps per day (ignoring missing values in the dataset)
+#### 1) Total number of steps per day
+```{r meansteps}
+#use dplyr to group by date and calculate sum of steps per day
+stepsDay <- datNoH %>% group_by(date) %>% summarize_all(sum)
+```
+#### 2) Histogram of the total numebr of steps taken each day
+```{r}
+ggplot(stepsDay, aes(x=steps)) + geom_histogram()
+```
 
+#### 3) Calculate and report mean and median of the total number of steps per day
 
+```{r}
+summary(stepsDay$steps)
+```
+or
+```{r}
+meanSteps <- mean(stepsDay$steps) %>% print()
+medSteps <- median(stepsDay$steps) %>% print()
+```
+### Average daily activity pattern
+#### 1) Time series plot of interval vs average steps taken across days
 
-## Imputing missing values
+```{r}
+stepsint <- datNoH %>% group_by(interval) %>% summarize(MeanSteps = mean(steps))
+ggplot(data = stepsint, aes(x=interval, y = MeanSteps))+geom_line(color = "blue")
 
+```
 
+#### 2) Which 5 minute interval contains the max number of steps?
+```{r}
+as.integer(stepsint[which.max(stepsint$MeanSteps),1])
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+### Imputing missing values
+#### 1) Number of missing values in dataset
+```{r}
+length(dat$steps)-length(datNoH$steps)
+
+```
+#### 2) Fill in missing values in dataset.  Approach: if all NA's for a day, replace with zero, else, replace NA with average of steps for the day.
+#### 3) Create new dataset with missing data filled in
+
+```{r}
+require("zoo")
+remNA <- function(x,...) if (all(is.na(x))) 0 else mean(x,...)
+datFilled <- transform(dat, steps = na.aggregate(steps, by = date, FUN = remNA))
+head(datFilled)
+```
+
+#### 4) Repeat histogram and mean/media. Compare new(filled in vales) with original (missing data). Do these differ?  What's the impact of imputing?
+
+```{r}
+stepsDayFilled <- datFilled %>% group_by(date) %>% summarize_all(sum)
+ggplot(stepsDayFilled, aes(x=steps)) + geom_histogram()
+summary(stepsDayFilled$steps)
+#show a measure of skewness between data sets
+summary(stepsDay$steps) - summary(stepsDayFilled$steps)
+```
+
+##### Yes, they differ. The filled in dataset skews slightly higher overall, while having a minimum of zero and the same maximum. The impact is a loss of precision.
+
+### Weekdays vs Weekends
+#### 1) Create a new weekday/weekend factor variable in data
+
+```{r}
+datFilled$date <- as.Date(datFilled$date)
+datFilled$wday <- as.factor(weekdays(datFilled$date))
+table(datFilled$wday)
+class(datFilled$wday)
+daysweek <- c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')
+datFilled$wday <- factor(datFilled$wday %in% daysweek, levels = c(FALSE, TRUE), labels = c('weekend','weekday'))
+table(datFilled$wday)
+
+```
+#### 2) Panel plot of timeseries of interval vs average number of steps taken by weekday or weekend
+
+```{r}
+require("gridExtra")
+Set1 <- datFilled[datFilled$wday == 'weekend',]
+Set2 <- datFilled[datFilled$wday == 'weekday',]
+
+SetA <- Set1 %>% group_by(interval) %>% summarize(MeanSteps = mean(steps))
+SetB <- Set2 %>% group_by(interval) %>% summarize(MeanSteps = mean(steps))
+
+P1 <- ggplot(data = SetA, aes(x=interval, y = MeanSteps))+geom_line(color = "red")+ggtitle("Weekend")
+P2 <- ggplot(data = SetB, aes(x=interval, y = MeanSteps))+geom_line(color = "green")+ggtitle("Weekday")
+
+grid.arrange(P1,P2, ncol =1)
+```
